@@ -2,7 +2,7 @@ import os
 import torch
 from peft import LoraConfig, get_peft_model
 import ast
-from transformers import AutoProcessor, BitsAndBytesConfig, AutoModelForVision2Seq, HfArgumentParser
+from transformers import AutoProcessor, BitsAndBytesConfig, HfArgumentParser, AutoModelForImageTextToText
 from train.trainer import SmolVLMTrainer
 from train.data import make_supervised_data_module
 from train.params import DataArguments, ModelArguments, TrainingArguments
@@ -150,7 +150,7 @@ def train():
             )
         ))
 
-    model = AutoModelForVision2Seq.from_pretrained(
+    model = AutoModelForImageTextToText.from_pretrained(
         model_args.model_id,
         torch_dtype=compute_dtype,
         _attn_implementation="flash_attention_2" if not training_args.disable_flash_attn2 else "eager", 
