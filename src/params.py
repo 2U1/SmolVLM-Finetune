@@ -21,6 +21,8 @@ class TrainingArguments(HFTrainingArguments):
     freeze_llm: bool = field(default=False)
     freeze_connector: bool = field(default=False)
     disable_flash_attn2: bool = field(default=False)
+    unfreeze_topk_llm: int = 0
+    unfreeze_topk_vision: int = 0
 
     max_seq_length: int = field(
         default=16384, # This is the default value of the SmolVLM model

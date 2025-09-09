@@ -103,6 +103,17 @@ def validate_image_files(data_args):
             rank0_print(f"WARNING: {warning_msg}")
             rank0_print("Skipping invalid files as strict_image_validation=False")
 
+def unfreeze_topk_layers(model, k_llm: int = 0, k_vis: int = 0):
+    if k_llm and hasattr(model, "model") and hasattr(model.model, "layers"):
+        for layer in model.model.layers[-k_llm:]:
+            for p in layer.parameters():
+                p.requires_grad = True
+
+    if k_vis and hasattr(model, "vision_model") and hasattr(model.vision_model, "blocks"):
+        for blk in model.vision_model.blocks[-k_vis:]:
+            for p in blk.parameters():
+                p.requires_grad = True
+
 
 def train():
     global local_rank
@@ -114,19 +125,25 @@ def train():
 
     validate_image_files(data_args)
 
-    assert not (training_args.lora_enable and training_args.freeze_llm), 'When using LoRA, the LLM should not be frozen. If you want to freeze the LLM, please disable LoRA.'
+    
+    if training_args.lora_enable and not training_args.freeze_llm:
+        raise ValueError("If `lora_enable` is True, `freeze_llm` must also be True.")
 
     if not training_args.lora_enable:
         assert not training_args.vision_lora, \
             "Error: training_args.lora_enable is not enabled, but training_args.vision_lora is enabled."
+        
+    if training_args.vision_lora and not training_args.freeze_vision_tower:
+        raise ValueError("If `vision_lora` is True, `freeze_vision_tower` must also be True.")
 
-    if training_args.lora_namespan_exclude is not None:
-        training_args.lora_namespan_exclude = ast.literal_eval(training_args.lora_namespan_exclude)
     else:
-        training_args.lora_namespan_exclude = []
+        if training_args.lora_namespan_exclude is not None:
+            training_args.lora_namespan_exclude = ast.literal_eval(training_args.lora_namespan_exclude)
+        else:
+            training_args.lora_namespan_exclude = []
 
-    if not training_args.vision_lora:
-        training_args.lora_namespan_exclude += ["vision_model"]
+        if not training_args.vision_lora:
+            training_args.lora_namespan_exclude += ["vision_model"]
 
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
@@ -161,6 +178,12 @@ def train():
     configure_llm(model_to_configure, training_args)
     configure_vision_tower(model_to_configure, processor, training_args, compute_dtype, training_args.device)
 
+    unfreeze_topk_layers(
+        model_to_configure,
+        k_llm=getattr(training_args, "unfreeze_topk_llm", 0),
+        k_vis=getattr(training_args, "unfreeze_topk_vision", 0),
+    )
+
     model.config.use_cache = False
 
     if training_args.bits in [4,8]:
@@ -189,9 +212,19 @@ def train():
         rank0_print("Adding LoRA to the model...")
         model = get_peft_model(model, peft_config)
 
+        
+        if not training_args.freeze_vision_tower:
+            for name, param in model.named_parameters():
+                if "vision_model" in name:
+                    param.requires_grad = True
+
+        if not training_args.freeze_connector:
+            for name, param in model.named_parameters():
+                if "connector" in name:
+                    param.requires_grad = True
+
     # model.config.tokenizer_model_max_length = processor.tokenizer.model_max_length
     model.config.tokenizer_padding_side = processor.tokenizer.padding_side
-
     model.config.vision_lr = training_args.vision_lr
 
     if training_args.bits in [4, 8]:
@@ -238,6 +271,7 @@ def train():
         if local_rank == 0 or local_rank == -1:
             model.config.save_pretrained(training_args.output_dir)
             model.save_pretrained(training_args.output_dir, state_dict=state_dict)
+            processor.save_pretrained(training_args.output_dir)
             torch.save(non_lora_state_dict, os.path.join(training_args.output_dir, "non_lora_state_dict.bin"))
     else:
         safe_save_model_for_hf_trainer(trainer, output_dir=training_args.output_dir)
