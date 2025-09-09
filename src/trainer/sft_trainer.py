@@ -36,10 +36,10 @@ def maybe_zero_3(param, ignore_status=False, name=None):
         param = param.detach().cpu().clone()
     return param
 
-class SmolVLMTrainer(Trainer):
+class SmolVLMSFTTrainer(Trainer):
 
     def __init__(self, *args, **kwargs):
-        super(SmolVLMTrainer, self).__init__(*args, **kwargs)
+        super(SmolVLMSFTTrainer, self).__init__(*args, **kwargs)
 
     def create_optimizer(self):
         """
@@ -170,4 +170,4 @@ class SmolVLMTrainer(Trainer):
                 self._push_from_checkpoint(output_dir)
 
         else:
-            super(SmolVLMTrainer, self)._save_checkpoint(model, trial)
+            super(SmolVLMSFTTrainer, self)._save_checkpoint(model, trial)
